@@ -121,3 +121,62 @@ print(result.test_rmse, result.test_mae)
 
 `run_slim_experiment` imports the `slim_gsgp` package lazily and raises `ImportError` if the
 `slim_v2/` submodule isn't installed — everything else in `src/` works without it.
+
+## Per-task CV experiments (`run_experiment.py`)
+
+One binary classifier per task (labels {0, 1} → 0, 2 → 1), evaluated with 5-fold stratified CV
+by child. The folds are fixed in advance and shared by the chosen tasks. Only the 30 kinematic
+features are used. Yeo–Johnson + standardization is fitted on each training fold.
+
+Every model (`svm`, `gp`, `gsgp`, `slim`) goes through the same per-fold step. Each one is an
+entry in `MODEL_SPECS` (`src/core/schema.py`) with three fields:
+
+- `fixed`: settings always used.
+- `grid`: settings tuned by inner CV on the training fold. `{}` means no tuning.
+- `stochastic`: `True` runs once per seed, `False` once per fold.
+
+Deciding which model is tuned, or which settings it gets, is a config change only. The slim_v2
+models are wrapped as scikit-learn classifiers (`src/experiment/estimators.py`), trained with
+`sigmoid_rmse`, and their raw output ≥ 0 → class 1.
+
+```bash
+python run_experiment.py --task 3 6 9 --build-folds      # build + save folds for exactly these tasks
+python run_experiment.py --task 3 6 9 --check-folds      # re-check the saved folds' positive rates
+python run_experiment.py --task 3 6 9 --timing           # one fold x one seed per model, 100 generations, to budget runs
+python run_experiment.py --task 3 6 9                    # full run: all folds, models, seeds
+python run_experiment.py --task 3 6 9 --models svm gp --seeds 42 43 --folds 0 1
+```
+
+`--cohort` defaults to `1year`. `--task` is required and doesn't accept `all`, unlike `main.py`: the
+folds are balanced on exactly the tasks given, so a fold file is only valid for that task set. Outputs go to `results/`
+(gitignored, since they list subject IDs):
+
+- `results/folds/<cohort>_tasks-<ids>_k5.csv` (+ `.json`): one fold per child.
+
+- `results/<run>/`: by default `<cohort>_tasks-<ids>_k<folds>_fs<fold seed>`, so runs on different
+  folds never share a folder.
+- `results/<run>/metrics.csv`: one row per (task, model, fold, seed). Besides the four scores, and `auc`
+  (ROC AUC on `y_score`, a backup for when rare positives make the thresholded scores collapse), it
+  has whatever the model reports as its own column: `nodes`, `depth`, `train_fitness` for tree
+  models (empty for the SVM), and `best_params` (JSON) and `inner_score` for tuned models.
+  `summarize` reports mean/std of the scores (AUC included) and mean/std/median of `nodes` and `depth`.
+- `results/<run>/predictions.csv`: held-out predictions per child, for later ensembling: `y_pred`
+  (0/1) and `y_score`, the model's raw output from `decision_function` (positive → class 1;
+  the scale differs between models).
+- `results/<run>/config.json`: what the folder was computed from: fold seed and a fingerprint of
+  the fold assignment, a fingerprint of each task's cleaned data, each model's spec and every
+  setting it ran with (library defaults included), and one entry per invocation with the seeds,
+  folds, code and slim_v2 commits, and package versions.
+- `results/timing/<stem>_task<t>_<timestamp>/`: one new folder per `--timing` call. Timing runs
+  use `TIMING_N_ITER` (100) generations instead of the full setting, so they finish in minutes.
+
+The fold balance table (per task and fold: test children, positives, test/train/task positive
+rate, gap in points) is recomputed from the saved fold file and the cleaned data, independently
+of the allocator. `--build-folds` prints it after saving, and `--check-folds` prints it again at
+any time. It reports only; no limits are applied.
+
+Runs are resumable: combinations already in `metrics.csv` are skipped. Resuming into a folder made
+with other folds (even under the same fold seed), other data, or different settings for a model
+already in it, is refused (use a new
+`--run-name`). Adding models to an existing folder is fine. Models whose spec isn't `stochastic` run
+once per fold under `DEFAULT_SEED`, whatever `--seeds` says.

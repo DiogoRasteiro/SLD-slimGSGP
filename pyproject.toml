@@ -5,7 +5,10 @@ description = "SLD-slimGSGP project"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "numpy>=2.0",
+    "pandas>=2.2",
     "rich>=15.0.0",
+    "scikit-learn>=1.5",
     "slim-gsgp",
 ]
 

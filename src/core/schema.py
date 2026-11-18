@@ -160,6 +160,83 @@ EDA_DURATION_RELATIONSHIPS: Tuple[Tuple[str, str], ...] = (
     ("writing_duration_overall", "writing_duration(on-surface)"),
 )
 
+# --- Per-task binary CV experiments (agreed with the team, Nov 2026) ---
+# Labels {0, 1} -> 0 and {2} -> 1 ("struggled").
+BINARY_POSITIVE_LABEL: int = 2
+BINARY_TARGET_COLUMN: str = "y"
+DEFAULT_EXPERIMENT_COHORT: str = "1year"
+CV_OUTER_FOLDS: int = 5
+CV_INNER_FOLDS: int = 3
+# Fold assignment is chosen among these seeds by class balance only, never by model results.
+CV_FOLD_SEED_CANDIDATES: Tuple[int, ...] = tuple(range(DEFAULT_SEED, DEFAULT_SEED + 20))
+# Seeds for every stochastic model (6 for now; 6 or 10 to be decided after timing).
+EXPERIMENT_SEEDS: Tuple[int, ...] = tuple(range(DEFAULT_SEED, DEFAULT_SEED + 6))
+# Every model goes through the same per-fold pipeline. Each entry only decides:
+#   fixed      - settings always used
+#   grid       - settings tuned by inner CV on the training fold ({} = no tuning)
+#   stochastic - True: one run per seed; False: one run per fold
+# Evolutionary settings are provisional, to be confirmed after timing.
+_EVOLUTION_COMMON: Dict[str, object] = {
+    "pop_size": 500,
+    "n_iter": 2000,
+    "init_depth": 6,
+    "tournament_size": 4,
+    "fitness_function": "sigmoid_rmse",
+}
+MODEL_SPECS: Dict[str, Dict[str, object]] = {
+    "svm": {
+        "fixed": {},
+        "grid": {
+            "C": [0.1, 1.0, 10.0, 100.0],
+            "gamma": ["scale", 0.01, 0.1],
+            # No class_weight: the evolutionary models have no class weighting either,
+            # so every model sees the labels as they are.
+        },
+        "stochastic": False,
+    },
+    "gp": {
+        "fixed": {**_EVOLUTION_COMMON},
+        "grid": {},
+        "stochastic": True,
+    },
+    "gsgp": {
+        "fixed": {**_EVOLUTION_COMMON, "p_xo": 0.0, "ms_lower": 0.0, "ms_upper": 1.0, "reconstruct": True},
+        "grid": {},
+        "stochastic": True,
+    },
+    "slim": {
+        "fixed": {
+            **_EVOLUTION_COMMON,
+            "slim_version": "SLIM+SIG2",
+            "p_inflate": 0.7,
+            "ms_lower": 0.0,
+            "ms_upper": 1.0,
+            # slim_v2 requires max_depth >= init_depth + 6.
+            "max_depth": 15,
+            "reconstruct": True,
+        },
+        "grid": {},
+        "stochastic": True,
+    },
+}
+EXPERIMENT_MODELS: Tuple[str, ...] = tuple(MODEL_SPECS)
+TUNING_SCORING: str = "balanced_accuracy"
+# GSGP's predict() recurses once per mutation in a tree's history; Python's default
+# limit (1000) fails between 1,500 and 2,000 generations. Raised only while predicting.
+PREDICT_RECURSION_LIMIT: int = 10_000
+# Sequential: tuning in parallel ran the machine short of memory.
+TUNING_N_JOBS: int = 1
+# Output layout under results/ (gitignored: fold files and predictions list subject IDs).
+RESULTS_DIR_NAME: str = "results"
+FOLDS_DIR_NAME: str = "folds"
+TIMING_DIR_NAME: str = "timing"
+# Generations in a --timing run: enough to measure cost per generation, not hours.
+TIMING_N_ITER: int = 100
+LIBRARY_LOG_DIR_NAME: str = "library_log"
+METRICS_FILE_NAME: str = "metrics.csv"
+PREDICTIONS_FILE_NAME: str = "predictions.csv"
+RUN_CONFIG_FILE_NAME: str = "config.json"
+
 # Task Performance Labels: 0 best, 2 worst; -1 indicates subject not present
 LABEL_DESCRIPTION: Dict[int, str] = {
     0: "Best Performance (Score 0)",

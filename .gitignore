@@ -110,6 +110,7 @@ checkpoints/*
 logs/*
 log/
 output/*
+results/
 models/*
 plots/*
 .env
